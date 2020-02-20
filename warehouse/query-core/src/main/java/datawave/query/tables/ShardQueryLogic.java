@@ -153,7 +153,7 @@ import java.util.concurrent.TimeUnit;
  * 
  * @see datawave.query.enrich
  */
-public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> {
+public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> implements Checkpointable {
     
     public static final String NULL_BYTE = "\0";
     public static final Class<? extends ShardQueryConfiguration> tableConfigurationType = ShardQueryConfiguration.class;
@@ -262,7 +262,12 @@ public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> {
         initialize(config, connection, settings, auths);
         return config;
     }
-    
+
+    @Override
+    public QueryCheckpoint checkpoint() {
+        return null;
+    }
+
     @Override
     public String getPlan(Connector connection, Query settings, Set<Authorizations> auths, boolean expandFields, boolean expandValues) throws Exception {
         
@@ -505,42 +510,42 @@ public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> {
         
         final QueryStopwatch timers = config.getTimers();
         TraceStopwatch stopwatch = timers.newStartedStopwatch("ShardQueryLogic - Setup Query");
-        
+
         // Ensure we have all of the information needed to run a query
         if (!config.canRunQuery()) {
             log.warn("The given query '" + config + "' could not be run, most likely due to not matching any records in the global index.");
-            
+
             // Stub out an iterator to correctly present "no results"
             this.iterator = new Iterator<Map.Entry<Key,Value>>() {
                 @Override
                 public boolean hasNext() {
                     return false;
                 }
-                
+
                 @Override
                 public Map.Entry<Key,Value> next() {
                     return null;
                 }
-                
+
                 @Override
                 public void remove() {
                     return;
                 }
             };
-            
+
             this.scanner = null;
-            
+
             stopwatch.stop();
-            
+
             log.info(getStopwatchHeader(config));
             List<String> timings = timers.summarizeAsList();
             for (String timing : timings) {
                 log.info(timing);
             }
-            
+
             return;
         }
-        
+
         // Instantiate the scheduler for the queries
         this.scheduler = getScheduler(config, scannerFactory);
         
@@ -559,7 +564,42 @@ public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> {
             log.info(timing);
         }
     }
-    
+
+    @Override
+    public void setupQuery(Connector connection, QueryCheckpoint checkpoint) throws Exception {
+        if (!ShardQueryLogicCheckpoint.class.isAssignableFrom(checkpoint.getClass())) {
+            throw new QueryException("Did not receive a ShardQueryLogicCheckpoint instance!!");
+        }
+
+        ShardQueryLogicCheckpoint checkpoint = (ShardQueryLogicCheckpoint)checkpoint;
+
+        ShardQueryConfiguration config = this.config = (ShardQueryConfiguration) checkpoint.getConfig();
+        config.setConnector(connection);
+
+        final QueryStopwatch timers = config.getTimers();
+        TraceStopwatch stopwatch = timers.newStartedStopwatch("ShardQueryLogic - Setup Query");
+
+        this.iterator = ((ShardQueryLogicCheckpoint)checkpoint)
+
+        // Instantiate the scheduler for the queries
+        this.scheduler = getScheduler(config, scannerFactory);
+
+        this.scanner = null;
+        this.iterator = this.scheduler.iterator();
+
+        if (!config.isSortedUIDs()) {
+            this.iterator = new DedupingIterator(this.iterator);
+        }
+
+        stopwatch.stop();
+
+        log.info(getStopwatchHeader(config));
+        List<String> timings = timers.summarizeAsList();
+        for (String timing : timings) {
+            log.info(timing);
+        }
+    }
+
     protected String getStopwatchHeader(ShardQueryConfiguration config) {
         return "ShardQueryLogic: " + config.getQueryString() + ", [" + config.getBeginDate() + ", " + config.getEndDate() + "]";
     }
@@ -2222,4 +2262,5 @@ public class ShardQueryLogic extends BaseQueryLogic<Entry<Key,Value>> {
     public void setSettings(Query settings) {
         getConfig().setQuery(settings);
     }
+
 }
