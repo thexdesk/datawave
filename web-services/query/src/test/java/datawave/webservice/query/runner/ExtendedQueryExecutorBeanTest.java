@@ -324,10 +324,9 @@ public class ExtendedQueryExecutorBeanTest {
         expect(this.connectionRequestBean.adminCancelConnectionRequest(queryId.toString())).andReturn(false);
         expect(this.qlCache.poll(queryId.toString())).andReturn(null);
         expect(this.cache.get(queryId.toString())).andReturn(this.runningQuery);
-        expect(this.runningQuery.getSettings()).andReturn(this.query);
-        this.runningQuery.cancel();
-        this.runningQuery.closeConnection(this.connectionFactory);
-        expect(this.query.getId()).andReturn(queryId);
+        expect(this.runningQuery.getSettings()).andReturn(this.query).anyTimes();
+        this.runningQuery.cancel(this.connectionFactory);
+        expect(this.query.getId()).andReturn(queryId).anyTimes();
         cache.remove(queryId.toString());
         expect(this.runningQuery.getTraceInfo()).andReturn(this.traceInfo);
         PowerMock.mockStaticPartial(Trace.class, "trace");
@@ -576,11 +575,10 @@ public class ExtendedQueryExecutorBeanTest {
         expect(this.principal.getAuthorizations()).andReturn((Collection) Arrays.asList(Arrays.asList(queryAuthorizations)));
         expect(this.cache.get(queryId.toString())).andReturn(this.runningQuery);
         this.closedCache.remove(queryId.toString());
-        expect(this.runningQuery.getSettings()).andReturn(this.query).times(2);
+        expect(this.runningQuery.getSettings()).andReturn(this.query).anyTimes();
         expect(this.query.getOwner()).andReturn(userSid);
-        this.runningQuery.cancel();
-        this.runningQuery.closeConnection(this.connectionFactory);
-        expect(this.query.getId()).andReturn(queryId);
+        this.runningQuery.cancel(this.connectionFactory);
+        expect(this.query.getId()).andReturn(queryId).anyTimes();
         cache.remove(queryId.toString());
         expect(this.runningQuery.getTraceInfo()).andReturn(this.traceInfo);
         PowerMock.mockStaticPartial(Trace.class, "trace");
@@ -1298,7 +1296,7 @@ public class ExtendedQueryExecutorBeanTest {
         expect(this.qlCache.pollIfOwnedBy(queryId.toString(), userSid)).andReturn(null);
         expect(this.cache.get(queryId.toString())).andReturn(this.runningQuery);
         expect(this.connectionFactory.getConnection("connPool1", Priority.NORMAL, null)).andReturn(this.connector);
-        this.runningQuery.closeConnection(this.connectionFactory);
+        this.runningQuery.close(this.connectionFactory);
         this.cache.remove(queryId.toString());
         this.closedCache.add(queryId.toString());
         this.closedCache.remove(queryId.toString());
@@ -2855,7 +2853,7 @@ public class ExtendedQueryExecutorBeanTest {
         expect(this.runningQuery.getTraceInfo()).andReturn(this.traceInfo);
         expect(this.cache.lock(queryName)).andReturn(true);
         expect(this.runningQuery.getConnection()).andReturn(this.connector);
-        this.runningQuery.closeConnection(this.connectionFactory);
+        this.runningQuery.close(this.connectionFactory);
         PowerMock.expectLastCall().andThrow(new IOException("INTENTIONALLY THROWN 1ST-LEVEL TEST EXCEPTION"));
         cache.unlock(queryName);
         this.transaction.commit();

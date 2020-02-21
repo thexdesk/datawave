@@ -1,6 +1,5 @@
-package datawave.query.tables;
+package datawave.webservice.query.logic;
 
-import datawave.webservice.query.Query;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 
 import java.io.Serializable;
@@ -10,13 +9,8 @@ import java.io.Serializable;
  */
 public interface QueryCheckpoint extends Serializable {
     /**
-     * Get the query for this checkpoint.
-     * @return the query
-     */
-    Query getQuery();
-
-    /**
      * Get the query configuration.
+     * 
      * @return the configuration
      */
     GenericQueryConfiguration getConfig();

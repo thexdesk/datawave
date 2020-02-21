@@ -507,7 +507,7 @@ public class ShardTableQueryMetricHandler extends BaseQueryMetricHandler<QueryMe
             if (null != this.connectionFactory) {
                 if (null != runningQuery && null != connector) {
                     try {
-                        runningQuery.closeConnection(this.connectionFactory);
+                        runningQuery.close(this.connectionFactory);
                     } catch (Exception e) {
                         log.warn("Could not return connector to factory", e);
                     }

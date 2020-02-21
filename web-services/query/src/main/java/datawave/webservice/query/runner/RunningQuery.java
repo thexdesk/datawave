@@ -22,6 +22,8 @@ import datawave.webservice.query.cache.ResultsPage;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import datawave.webservice.query.data.ObjectSizeOf;
 import datawave.webservice.query.exception.QueryException;
+import datawave.webservice.query.logic.Checkpointable;
+import datawave.webservice.query.logic.QueryCheckpoint;
 import datawave.webservice.query.logic.QueryLogic;
 import datawave.webservice.query.logic.WritesQueryMetrics;
 import datawave.webservice.query.logic.WritesResultCardinalities;
@@ -34,6 +36,7 @@ import datawave.webservice.query.util.QueryUncaughtExceptionHandler;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.accumulo.core.trace.thrift.TInfo;
+import org.apache.accumulo.server.Accumulo;
 import org.apache.commons.collections4.iterators.TransformIterator;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.log4j.Logger;
@@ -53,12 +56,15 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     private AccumuloConnectionFactory.Priority connectionPriority = null;
     private transient QueryLogic<?> logic = null;
     private Query settings = null;
+    private QueryCheckpoint checkpoint;
     private long numResults = 0;
     private long lastPageNumber = 0;
     private transient TransformIterator iter = null;
     private Set<Authorizations> calculatedAuths = null;
     private boolean finished = false;
     private volatile boolean canceled = false;
+    private volatile boolean paused = false;
+    private volatile boolean closed = false;
     private TInfo traceInfo = null;
     private transient QueryMetricsBean queryMetrics = null;
     private RunningQueryTiming timing = null;
@@ -94,6 +100,12 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
     public RunningQuery(QueryMetricsBean queryMetrics, Connector connection, AccumuloConnectionFactory.Priority priority, QueryLogic<?> logic, Query settings,
                     String methodAuths, Principal principal, RunningQueryTiming timing, ExecutorService executor, QueryPredictor predictor,
                     QueryMetricFactory metricFactory) throws Exception {
+        this(queryMetrics, connection, priority, logic, settings, methodAuths, principal, timing, executor, predictor, metricFactory, null);
+    }
+    
+    public RunningQuery(QueryMetricsBean queryMetrics, Connector connection, AccumuloConnectionFactory.Priority priority, QueryLogic<?> logic, Query settings,
+                    String methodAuths, Principal principal, RunningQueryTiming timing, ExecutorService executor, QueryPredictor predictor,
+                    QueryMetricFactory metricFactory, QueryCheckpoint checkpoint) throws Exception {
         super(metricFactory);
         if (logic != null && logic.getCollectQueryMetrics()) {
             this.queryMetrics = queryMetrics;
@@ -102,6 +114,7 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         this.logic = logic;
         this.connectionPriority = priority;
         this.settings = settings;
+        this.checkpoint = checkpoint;
         this.calculatedAuths = AuthorizationsUtil.getDowngradedAuthorizations(methodAuths, principal);
         this.timing = timing;
         this.executor = executor;
@@ -153,16 +166,24 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         
         try {
             addNDC();
-            applyPrediction(null);
             this.connection = connection;
             long start = System.currentTimeMillis();
-            GenericQueryConfiguration configuration = this.logic.initialize(this.connection, this.settings, this.calculatedAuths);
+            GenericQueryConfiguration configuration = null;
+            if (this.checkpoint != null) {
+                configuration = ((Checkpointable) this.logic).initialize(this.connection, this.checkpoint);
+                this.checkpoint = null;
+            } else {
+                applyPrediction(null);
+                configuration = this.logic.initialize(this.connection, this.settings, this.calculatedAuths);
+            }
             this.lastPageNumber = 0;
             this.logic.setupQuery(configuration);
             this.iter = this.logic.getTransformIterator(this.settings);
-            // the configuration query string should now hold the planned query
-            this.getMetric().setPlan(configuration.getQueryString());
-            this.getMetric().setSetupTime((System.currentTimeMillis() - start));
+            if (this.checkpoint == null) {
+                // the configuration query string should now hold the planned query
+                this.getMetric().setPlan(configuration.getQueryString());
+                this.getMetric().setSetupTime((System.currentTimeMillis() - start));
+            }
             this.getMetric().setLifecycle(QueryMetric.Lifecycle.INITIALIZED);
             testForUncaughtException(0);
             // TODO: applyPrediction("Plan");
@@ -201,9 +222,8 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
             
             while (!this.finished && ((future != null) || this.iter.hasNext())) {
                 // if we are canceled, then break out
-                if (this.canceled) {
-                    log.info("Query has been cancelled, aborting query.next call");
-                    this.getMetric().setLifecycle(QueryMetric.Lifecycle.CANCELLED);
+                if (this.canceled || this.closed || this.paused) {
+                    log.info("Query has been paused or stopped, aborting query.next call");
                     break;
                 }
                 // if the number of results has reached out page size, then break out
@@ -332,25 +352,16 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
     }
     
-    public void cancel() {
-        this.canceled = true;
-        // save off the future as it could be removed at any time
-        Future<Object> future = this.future;
-        // cancel the future if we have one
-        if (future != null) {
-            future.cancel(true);
-        }
-        
-        // change status to cancelled
-        this.getMetric().setLifecycle(QueryMetric.Lifecycle.CANCELLED);
-    }
-    
     public boolean isFinished() {
         return finished;
     }
     
     public boolean isCanceled() {
         return canceled;
+    }
+    
+    public boolean isPaused() {
+        return paused;
     }
     
     public Connector getConnection() {
@@ -404,8 +415,66 @@ public class RunningQuery extends AbstractRunningQuery implements Runnable {
         }
     }
     
-    public void closeConnection(AccumuloConnectionFactory factory) throws Exception {
-        this.getMetric().setLifecycle(BaseQueryMetric.Lifecycle.CLOSED);
+    /**
+     * Pause the query if possible. If not possible then null is returned.
+     * 
+     * @return the checkpoint
+     * @param factory
+     *            The connection factory
+     * @throws Exception
+     */
+    public QueryCheckpoint pause(AccumuloConnectionFactory factory) throws Exception {
+        
+        if (!(this.logic instanceof Checkpointable)) {
+            return null;
+        }
+        
+        // test for any exceptions prior to pause.
+        testForUncaughtException(0);
+        // get the checkpoint
+        this.checkpoint = ((Checkpointable) this.logic).checkpoint();
+        
+        this.paused = true;
+        
+        closeConnection(factory, QueryMetric.Lifecycle.PAUSED);
+        
+        return this.checkpoint;
+    }
+    
+    /**
+     * Cancel the query. This is normally done before the query has completed, otherwise it will have already been closed.
+     * 
+     * @param factory
+     *            The connection factory
+     * @throws Exception
+     */
+    public void cancel(AccumuloConnectionFactory factory) throws Exception {
+        this.canceled = true;
+        
+        closeConnection(factory, QueryMetric.Lifecycle.CANCELLED);
+    }
+    
+    /**
+     * Close the query. This is normally done when all of the results has been retrieved and subsequently the query is closed.
+     * 
+     * @param factory
+     * @throws Exception
+     */
+    public void close(AccumuloConnectionFactory factory) throws Exception {
+        this.closed = true;
+        
+        closeConnection(factory, QueryMetric.Lifecycle.CLOSED);
+    }
+    
+    private void closeConnection(AccumuloConnectionFactory factory, QueryMetric.Lifecycle state) throws Exception {
+        // save off the future as it could be removed at any time
+        Future<Object> future = this.future;
+        // cancel the future if we have one
+        if (future != null) {
+            future.cancel(true);
+        }
+        
+        this.getMetric().setLifecycle(state);
         
         if (iter != null && iter.getTransformer() instanceof WritesResultCardinalities) {
             ((WritesResultCardinalities) iter.getTransformer()).writeResultCardinalities();

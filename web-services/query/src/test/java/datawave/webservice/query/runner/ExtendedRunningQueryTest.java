@@ -293,21 +293,25 @@ public class ExtendedRunningQueryTest {
         this.query.populateMetric(isA(QueryMetric.class));
         expect(this.query.getUncaughtExceptionHandler()).andReturn(exceptionHandler).times(3);
         expect(this.exceptionHandler.getThrowable()).andReturn(null).times(3);
-        expect(this.query.getId()).andReturn(queryId).times(2);
-        expect(this.query.getUserDN()).andReturn(userDN).times(2);
+        expect(this.query.getId()).andReturn(queryId).times(3);
+        expect(this.query.getUserDN()).andReturn(userDN).times(3);
         expect(this.queryLogic.initialize(eq(this.connector), eq(this.query), isA(Set.class))).andReturn(this.genericConfiguration);
         this.queryLogic.setupQuery(this.genericConfiguration);
         this.queryMetrics.updateMetric(isA(QueryMetric.class));
-        PowerMock.expectLastCall().times(3);
         expect(this.queryLogic.getTransformIterator(this.query)).andReturn(this.transformIterator);
         expect(this.transformIterator.hasNext()).andReturn(true);
+        expect(this.transformIterator.getTransformer()).andReturn(this.transformer);
         expect(this.genericConfiguration.getQueryString()).andReturn("query").once();
+        this.queryMetrics.updateMetric(isA(QueryMetric.class));
+        PowerMock.expectLastCall().times(3);
+        this.connectionFactory.returnConnection(this.connector);
+        this.queryLogic.close();
         
         // Run the test
         PowerMock.replayAll();
         RunningQuery subject = new RunningQuery(this.queryMetrics, this.connector, Priority.NORMAL, this.queryLogic, this.query, methodAuths, principal,
                         new QueryMetricFactoryImpl());
-        subject.cancel();
+        subject.cancel(this.connectionFactory);
         boolean result1 = subject.isCanceled();
         ResultsPage result2 = subject.next();
         PowerMock.verifyAll();
@@ -352,7 +356,7 @@ public class ExtendedRunningQueryTest {
         PowerMock.replayAll();
         RunningQuery subject = new RunningQuery(this.queryMetrics, this.connector, Priority.NORMAL, this.queryLogic, this.query, methodAuths, principal,
                         new QueryMetricFactoryImpl());
-        subject.closeConnection(this.connectionFactory);
+        subject.close(this.connectionFactory);
         QueryMetric.Lifecycle status = subject.getMetric().getLifecycle();
         PowerMock.verifyAll();
         

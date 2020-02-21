@@ -755,7 +755,7 @@ public class CachedResultsBean {
             if (null != query) {
                 query.setActiveCall(false);
                 try {
-                    query.closeConnection(connectionFactory);
+                    query.close(connectionFactory);
                 } catch (Exception e) {
                     response.addException(new QueryException(DatawaveErrorCode.QUERY_CLOSE_ERROR, e).getBottomQueryException());
                 }
@@ -2006,7 +2006,7 @@ public class CachedResultsBean {
             } else {
                 if (query.getSettings().getOwner().equals(owner)) {
                     accumuloConnectionRequestBean.cancelConnectionRequest(originalQueryId);
-                    query.cancel();
+                    query.cancel(connectionFactory);
                     response.addMessage("CachedResults load canceled.");
                 } else {
                     UnauthorizedQueryException e = new UnauthorizedQueryException(DatawaveErrorCode.QUERY_OWNER_MISMATCH, MessageFormat.format("{0} != {1}",
@@ -2060,7 +2060,7 @@ public class CachedResultsBean {
                 throw new NotFoundException(e, response);
             } else {
                 accumuloConnectionRequestBean.adminCancelConnectionRequest(originalQueryId);
-                query.cancel();
+                query.cancel(connectionFactory);
                 response.addMessage("CachedResults load canceled.");
             }
             return response;

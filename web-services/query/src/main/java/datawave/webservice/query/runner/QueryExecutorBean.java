@@ -56,6 +56,7 @@ import datawave.webservice.query.exception.PreConditionFailedQueryException;
 import datawave.webservice.query.exception.QueryException;
 import datawave.webservice.query.exception.UnauthorizedQueryException;
 import datawave.webservice.query.factory.Persister;
+import datawave.webservice.query.logic.QueryCheckpoint;
 import datawave.webservice.query.logic.QueryLogic;
 import datawave.webservice.query.logic.QueryLogicFactory;
 import datawave.webservice.query.logic.QueryLogicTransformer;
@@ -1182,7 +1183,7 @@ public class QueryExecutorBean implements QueryExecutor {
             // connection in order to reset the query. Otherwise, we are truly
             // restarting the query, so we should re-audit ().
             if (query.getConnection() != null) {
-                query.closeConnection(connectionFactory);
+                query.close(connectionFactory);
             } else {
                 AuditType auditType = query.getLogic().getAuditType(query.getSettings());
                 MultivaluedMap<String,String> queryParameters = query.getSettings().toMap();
@@ -2203,6 +2204,41 @@ public class QueryExecutorBean implements QueryExecutor {
         }
     }
     
+    private void pause(RunningQuery query) throws Exception {
+        
+        String queryId = query.getSettings().getId().toString();
+        
+        log.debug("Pausing " + queryId);
+        
+        try {
+            QueryCheckpoint checkpoint = query.pause(connectionFactory);
+            // TODO: Store the checkpoint
+        } catch (Exception e) {
+            log.error("Failed to close connection for " + queryId, e);
+        }
+        
+        cleanup(query);
+        
+        log.debug("Paused " + queryId);
+    }
+    
+    private void cancel(RunningQuery query) throws Exception {
+        
+        String queryId = query.getSettings().getId().toString();
+        
+        log.debug("Cancelling " + queryId);
+        
+        try {
+            query.cancel(connectionFactory);
+        } catch (Exception e) {
+            log.error("Failed to close connection for " + queryId, e);
+        }
+        
+        cleanup(query);
+        
+        log.debug("Cancelled " + queryId);
+    }
+    
     private void close(RunningQuery query) throws Exception {
         
         String queryId = query.getSettings().getId().toString();
@@ -2210,14 +2246,20 @@ public class QueryExecutorBean implements QueryExecutor {
         log.debug("Closing " + queryId);
         
         try {
-            query.closeConnection(connectionFactory);
+            query.close(connectionFactory);
         } catch (Exception e) {
             log.error("Failed to close connection for " + queryId, e);
         }
         
-        queryCache.remove(queryId);
+        cleanup(query);
         
         log.debug("Closed " + queryId);
+    }
+    
+    private void cleanup(RunningQuery query) {
+        String queryId = query.getSettings().getId().toString();
+        
+        queryCache.remove(queryId);
         
         // The trace was already stopped, but mark the time we closed it in the trace data.
         TInfo traceInfo = query.getTraceInfo();
@@ -2273,8 +2315,7 @@ public class QueryExecutorBean implements QueryExecutor {
             if (tuple == null) {
                 try {
                     RunningQuery query = getQueryById(id);
-                    query.cancel();
-                    close(query);
+                    cancel(query);
                 } catch (Exception e) {
                     log.debug("Failed to cancel " + id + ", checking if closed previously");
                     // if this is a query that is in the closed query cache, then we have already successfully closed this query so ignore
@@ -2337,8 +2378,7 @@ public class QueryExecutorBean implements QueryExecutor {
             if (tuple == null) {
                 try {
                     RunningQuery query = adminGetQueryById(id);
-                    query.cancel();
-                    close(query);
+                    cancel(query);
                 } catch (Exception e) {
                     log.debug("Failed to adminCancel " + id + ", checking if connection request was canceled");
                     // if connection request was canceled, then the call was successful even if a RunningQuery was not found

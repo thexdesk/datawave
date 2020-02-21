@@ -132,11 +132,8 @@ public class QueryExpirationBean {
                     }
                 }
                 
-                if (query.hasActiveCall()) {
-                    query.cancel();
-                }
                 try {
-                    query.closeConnection(connectionFactory);
+                    query.cancel(connectionFactory);
                 } catch (Exception e) {
                     log.error("Error returning connection to factory", e);
                 }
