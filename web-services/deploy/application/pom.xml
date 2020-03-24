@@ -197,6 +197,14 @@
             <artifactId>htrace-core4</artifactId>
             <scope>runtime</scope>
         </dependency>
+        <!-- TODO...
+        <dependency>
+            <groupId>org.apache.htrace</groupId>
+            <artifactId>htrace-zipkin</artifactId>
+            <version>3.1.0-incubating</version>
+            <scope>runtime</scope>
+        </dependency>
+        -->
         <!--
                          The following dependencies are pulled in just to silence some Wildfly warnings about missing jars that
             are referenced in another jar's Class-Path in the manifest. Some of these are test jars that will
