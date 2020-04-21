@@ -126,16 +126,10 @@ public class AccumuloConnectionFactoryBean implements AccumuloConnectionFactory 
                 log.warn("Unable to retrieve system property \"app\": " + e.getMessage());
             }
             try {
+                // The DistributedTrace.enable method sets appropriate defaults for most trace settings
+                // Override in local client.conf as needed...
                 ClientConfiguration traceConfig = ClientConfiguration.loadDefault().withInstance(entry.getValue().getInstance())
                                 .withZkHosts(entry.getValue().getZookeepers());
-                traceConfig.setProperty(DistributedTrace.TRACER_ZK_PATH, Constants.ZTRACERS);
-                /*
-                 * TODO: Add capability to use Zipkin as an additional sink for DW and Accumulo traces That can be as easy as adding
-                 * org.apache.htrace.impl.ZipkinSpanReceiver to the receivers list here - but requiring that the default Zipkin server location is running on
-                 * localhost:9410. Otherwise, we'll need to be able to configure alternate host, port, etc. Note that htrace-zipkin:3.1.0-incubating is required
-                 * for compatibility with Accumulo 1.9.x tracing.
-                 */
-                traceConfig.setProperty(ClientConfiguration.ClientProperty.TRACE_SPAN_RECEIVERS, "org.apache.accumulo.tracer.ZooTraceClient");
                 DistributedTrace.enable(InetAddress.getLocalHost().getHostName(), appName, traceConfig);
             } catch (IOException e) {
                 log.error("Unable to initialize distributed tracing system: " + e.getMessage(), e);
@@ -207,6 +201,11 @@ public class AccumuloConnectionFactoryBean implements AccumuloConnectionFactory 
                     log.error("Error closing Accumulo Connection Pool: " + e);
                 }
             }
+        }
+        try {
+            DistributedTrace.disable();
+        } catch (Exception e) {
+            log.warn("Failed to disable tracing cleanly: " + e);
         }
     }
     

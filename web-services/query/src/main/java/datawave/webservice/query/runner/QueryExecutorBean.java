@@ -2045,10 +2045,11 @@ public class QueryExecutorBean implements QueryExecutor {
                 log.error("Error committing transaction: resources rolled back transaction", e);
             } catch (Exception e) {
                 log.error("Error committing transaction: Unknown error", e);
-            }
-            // Stop timing on this trace, if any
-            if (span != null) {
-                span.stop();
+            } finally {
+                // Stop timing on this trace, if any
+                if (span != null) {
+                    span.stop();
+                }
             }
         }
         
