@@ -166,6 +166,8 @@ public class ShardQueryConfigurationTest {
         Assert.assertNull(config.getZookeeperConfig());
         Assert.assertTrue(config.getIvaratorCacheDirConfigs().isEmpty());
         Assert.assertEquals(2, config.getIvaratorNumRetries());
+        Assert.assertEquals(100, config.getIvaratorPersistVerifyCount());
+        Assert.assertEquals(true, config.isIvaratorPersistVerify());
         Assert.assertNull(config.getIvaratorFstHdfsBaseURIs());
         Assert.assertEquals(10000, config.getIvaratorCacheBufferSize());
         Assert.assertEquals(100000, config.getIvaratorCacheScanPersistThreshold());
