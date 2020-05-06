@@ -780,17 +780,17 @@ public class QueryExecutorBean implements QueryExecutor {
             rootSpan.data(param.getKey(), param.getValue().get(0));
         }
         TInfo traceInfo = Tracer.traceInfo();
-
+        
         // Go ahead and deliver to SpanReceivers, in case we fail to close the TraceScope later on
         org.apache.htrace.Tracer.getInstance().deliver(rootSpan.getSpan());
-
+        
         // Detach from the current thread. We'll cache it, then resume & stop it on query close
         rootSpan.getScope().detach();
         queryTraceCache.put(queryId, rootSpan);
-
+        
         return traceInfo;
     }
-
+    
     /**
      * @param queryLogicName
      * @param queryParameters
@@ -1934,7 +1934,7 @@ public class QueryExecutorBean implements QueryExecutor {
                 
                 // Set the active call and get next
                 query.setActiveCall(true);
-
+                
                 // If we're tracing this query, then start a new trace for the next call.
                 TInfo traceInfo = query.getTraceInfo();
                 if (traceInfo != null) {
@@ -2231,9 +2231,9 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
             }
         }
-
+        
         queryCache.remove(queryId);
-
+        
         log.debug("Closed " + queryId);
     }
     
@@ -3455,11 +3455,11 @@ public class QueryExecutorBean implements QueryExecutor {
                 jsonSerializer.configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false);
                 try (JsonGenerator jsonGenerator = jsonSerializer.getFactory().createGenerator(out, JsonEncoding.UTF8)) {
                     jsonGenerator.enable(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM);
-
+                    
                     boolean sentResults = false;
                     boolean done = false;
                     List<PageMetric> pageMetrics = rq.getMetric().getPageTimes();
-
+                    
                     do {
                         Span span = null;
                         try {
@@ -3471,10 +3471,10 @@ public class QueryExecutorBean implements QueryExecutor {
                             }
                             BaseQueryResponse page = _next(rq, queryId, proxies, span);
                             PageMetric pm = pageMetrics.get(pageMetrics.size() - 1);
-
+                            
                             // Wrap the output stream so that we can get a byte count
                             CountingOutputStream countingStream = new CountingOutputStream(out);
-
+                            
                             long serializationStart = System.nanoTime();
                             switch (serializationType) {
                                 case XML:
@@ -3528,7 +3528,7 @@ public class QueryExecutorBean implements QueryExecutor {
                             }
                         }
                     } while (!done);
-
+                    
                     if (!sentResults)
                         throw new NoResultsQueryException(DatawaveErrorCode.RESULTS_NOT_SENT);
                     else if (serializationType == SerializationType.JSON) {
