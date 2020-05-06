@@ -780,17 +780,17 @@ public class QueryExecutorBean implements QueryExecutor {
             rootSpan.data(param.getKey(), param.getValue().get(0));
         }
         TInfo traceInfo = Tracer.traceInfo();
-        
+
         // Go ahead and deliver to SpanReceivers, in case we fail to close the TraceScope later on
         org.apache.htrace.Tracer.getInstance().deliver(rootSpan.getSpan());
-        
+
         // Detach from the current thread. We'll cache it, then resume & stop it on query close
         rootSpan.getScope().detach();
         queryTraceCache.put(queryId, rootSpan);
-        
+
         return traceInfo;
     }
-    
+
     /**
      * @param queryLogicName
      * @param queryParameters
@@ -1934,7 +1934,7 @@ public class QueryExecutorBean implements QueryExecutor {
                 
                 // Set the active call and get next
                 query.setActiveCall(true);
-                
+
                 // If we're tracing this query, then start a new trace for the next call.
                 TInfo traceInfo = query.getTraceInfo();
                 if (traceInfo != null) {
@@ -2231,9 +2231,9 @@ public class QueryExecutorBean implements QueryExecutor {
                 }
             }
         }
-        
+
         queryCache.remove(queryId);
-        
+
         log.debug("Closed " + queryId);
     }
     
@@ -3453,88 +3453,89 @@ public class QueryExecutorBean implements QueryExecutor {
                                 jsonSerializer.getTypeFactory())));
                 // Don't close the output stream
                 jsonSerializer.configure(JsonGenerator.Feature.AUTO_CLOSE_TARGET, false);
-                JsonGenerator jsonGenerator = jsonSerializer.getFactory().createGenerator(out, JsonEncoding.UTF8);
-                jsonGenerator.enable(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM);
-                
-                boolean sentResults = false;
-                boolean done = false;
-                List<PageMetric> pageMetrics = rq.getMetric().getPageTimes();
-                
-                do {
-                    Span span = null;
-                    try {
-                        long callStart = System.nanoTime();
-                        // If we're tracing this query, then start a new trace for the next call.
-                        TInfo traceInfo = rq.getTraceInfo();
-                        if (traceInfo != null) {
-                            span = Trace.trace(traceInfo, "query:next");
+                try (JsonGenerator jsonGenerator = jsonSerializer.getFactory().createGenerator(out, JsonEncoding.UTF8)) {
+                    jsonGenerator.enable(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM);
+
+                    boolean sentResults = false;
+                    boolean done = false;
+                    List<PageMetric> pageMetrics = rq.getMetric().getPageTimes();
+
+                    do {
+                        Span span = null;
+                        try {
+                            long callStart = System.nanoTime();
+                            // If we're tracing this query, then start a new trace for the next call.
+                            TInfo traceInfo = rq.getTraceInfo();
+                            if (traceInfo != null) {
+                                span = Trace.trace(traceInfo, "query:next");
+                            }
+                            BaseQueryResponse page = _next(rq, queryId, proxies, span);
+                            PageMetric pm = pageMetrics.get(pageMetrics.size() - 1);
+
+                            // Wrap the output stream so that we can get a byte count
+                            CountingOutputStream countingStream = new CountingOutputStream(out);
+
+                            long serializationStart = System.nanoTime();
+                            switch (serializationType) {
+                                case XML:
+                                    xmlSerializer.marshal(page, countingStream);
+                                    break;
+                                case JSON:
+                                    // First page!
+                                    if (!sentResults) {
+                                        jsonGenerator.writeStartObject();
+                                        jsonGenerator.writeArrayFieldStart("Pages");
+                                        jsonGenerator.flush();
+                                    } else {
+                                        // Delimiter for subsequent pages...
+                                        countingStream.write(',');
+                                    }
+                                    jsonSerializer.writeValue(countingStream, page);
+                                    break;
+                                case PB:
+                                    @SuppressWarnings("unchecked")
+                                    Message<Object> pb = (Message<Object>) page;
+                                    Schema<Object> pbSchema = pb.cachedSchema();
+                                    ProtobufIOUtil.writeTo(countingStream, page, pbSchema, buffer);
+                                    buffer.clear();
+                                    break;
+                                case YAML:
+                                    @SuppressWarnings("unchecked")
+                                    Message<Object> yaml = (Message<Object>) page;
+                                    Schema<Object> yamlSchema = yaml.cachedSchema();
+                                    YamlIOUtil.writeTo(countingStream, page, yamlSchema, buffer);
+                                    buffer.clear();
+                                    break;
+                            }
+                            countingStream.flush();
+                            long serializationTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - serializationStart);
+                            pm.setSerializationTime(serializationTime);
+                            long pageCallTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - callStart);
+                            pm.setCallTime(pageCallTime);
+                            pm.setBytesWritten(countingStream.getCount());
+                            sentResults = true;
+                        } catch (Exception e) {
+                            if (e instanceof NoResultsException || e.getCause() instanceof NoResultsException) {
+                                // No more results, break out of loop
+                                done = true;
+                                break; // probably redundant
+                            } else {
+                                throw e;
+                            }
+                        } finally {
+                            if (null != span) {
+                                span.stop();
+                            }
                         }
-                        BaseQueryResponse page = _next(rq, queryId, proxies, span);
-                        PageMetric pm = pageMetrics.get(pageMetrics.size() - 1);
-                        
-                        // Wrap the output stream so that we can get a byte count
-                        CountingOutputStream countingStream = new CountingOutputStream(out);
-                        
-                        long serializationStart = System.nanoTime();
-                        switch (serializationType) {
-                            case XML:
-                                xmlSerializer.marshal(page, countingStream);
-                                break;
-                            case JSON:
-                                // First page!
-                                if (!sentResults) {
-                                    jsonGenerator.writeStartObject();
-                                    jsonGenerator.writeArrayFieldStart("Pages");
-                                    jsonGenerator.flush();
-                                } else {
-                                    // Delimiter for subsequent pages...
-                                    countingStream.write(',');
-                                }
-                                jsonSerializer.writeValue(countingStream, page);
-                                break;
-                            case PB:
-                                @SuppressWarnings("unchecked")
-                                Message<Object> pb = (Message<Object>) page;
-                                Schema<Object> pbSchema = pb.cachedSchema();
-                                ProtobufIOUtil.writeTo(countingStream, page, pbSchema, buffer);
-                                buffer.clear();
-                                break;
-                            case YAML:
-                                @SuppressWarnings("unchecked")
-                                Message<Object> yaml = (Message<Object>) page;
-                                Schema<Object> yamlSchema = yaml.cachedSchema();
-                                YamlIOUtil.writeTo(countingStream, page, yamlSchema, buffer);
-                                buffer.clear();
-                                break;
-                        }
-                        countingStream.flush();
-                        long serializationTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - serializationStart);
-                        pm.setSerializationTime(serializationTime);
-                        long pageCallTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - callStart);
-                        pm.setCallTime(pageCallTime);
-                        pm.setBytesWritten(countingStream.getCount());
-                        sentResults = true;
-                    } catch (Exception e) {
-                        if (e instanceof NoResultsException || e.getCause() instanceof NoResultsException) {
-                            // No more results, break out of loop
-                            done = true;
-                            break; // probably redundant
-                        } else {
-                            throw e;
-                        }
-                    } finally {
-                        if (null != span) {
-                            span.stop();
-                        }
+                    } while (!done);
+
+                    if (!sentResults)
+                        throw new NoResultsQueryException(DatawaveErrorCode.RESULTS_NOT_SENT);
+                    else if (serializationType == SerializationType.JSON) {
+                        jsonGenerator.writeEndArray();
+                        jsonGenerator.writeEndObject();
+                        jsonGenerator.flush();
                     }
-                } while (!done);
-                
-                if (!sentResults)
-                    throw new NoResultsQueryException(DatawaveErrorCode.RESULTS_NOT_SENT);
-                else if (serializationType == SerializationType.JSON) {
-                    jsonGenerator.writeEndArray();
-                    jsonGenerator.writeEndObject();
-                    jsonGenerator.flush();
                 }
             } catch (DatawaveWebApplicationException e) {
                 throw e;

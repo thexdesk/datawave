@@ -1,5 +1,7 @@
 package datawave.query.util.sortedset;
 
+import java.util.TreeSet;
+import org.apache.accumulo.core.data.Key;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -40,12 +42,18 @@ public class BufferedFileBackedSortedSetTest {
             sortedOrder[i * 2] = sortedTemplate[i] + sortedTemplate.length;
             sortedOrder[i * 2 + 1] = sortedTemplate[i];
         }
-        set = new BufferedFileBackedSortedSet(new ByteArrayComparator(), 5, 7, new BufferedFileBackedSortedSet.SortedSetFileHandlerFactory() {
-            @Override
-            public FileSortedSet.SortedSetFileHandler createHandler() throws IOException {
-                return new SortedSetTempFileHandler();
-            }
-        }, new FileSerializableSortedSet.Factory());
+        set = new BufferedFileBackedSortedSet<>(new ByteArrayComparator(), 5, 7, 2,
+                        Collections.singletonList(new BufferedFileBackedSortedSet.SortedSetFileHandlerFactory() {
+                            @Override
+                            public FileSortedSet.SortedSetFileHandler createHandler() throws IOException {
+                                return new SortedSetTempFileHandler();
+                            }
+                            
+                            @Override
+                            public boolean isValid() {
+                                return true;
+                            }
+                        }), new FileSerializableSortedSet.Factory());
         
         // adding in the data set multiple times to create underlying files with duplicate values making the
         // MergeSortIterator's job a little tougher...
@@ -178,7 +186,11 @@ public class BufferedFileBackedSortedSetTest {
         int end = start * 2;
         try {
             SortedSet<byte[]> subSet = set.subSet(data[sortedOrder[start]], data[sortedOrder[end]]);
-            fail("Expected the subSet operation to fail with underlying persisted FileSortedSets");
+            SortedSet<byte[]> expected = new TreeSet<>(set.comparator());
+            for (int i = start; i < end; i++) {
+                expected.add(data[sortedOrder[i]]);
+            }
+            assertEquals(expected, subSet);
         } catch (Exception e) {
             // expected
         }
@@ -189,7 +201,11 @@ public class BufferedFileBackedSortedSetTest {
         int end = sortedOrder.length / 3;
         try {
             SortedSet<byte[]> subSet = set.headSet(data[sortedOrder[end]]);
-            fail("Expected the headSet operation to fail with underlying persisted FileSortedSets");
+            SortedSet<byte[]> expected = new TreeSet<>(set.comparator());
+            for (int i = 0; i < end; i++) {
+                expected.add(data[sortedOrder[i]]);
+            }
+            assertEquals(expected, subSet);
         } catch (Exception e) {
             // expected
         }
@@ -200,7 +216,11 @@ public class BufferedFileBackedSortedSetTest {
         int start = sortedOrder.length / 3;
         try {
             SortedSet<byte[]> subSet = set.tailSet(data[sortedOrder[start]]);
-            fail("Expected the tailSet operation to fail with underlying persisted FileSortedSets");
+            SortedSet<byte[]> expected = new TreeSet<>(set.comparator());
+            for (int i = start; i < sortedOrder.length; i++) {
+                expected.add(data[sortedOrder[i]]);
+            }
+            assertEquals(expected, subSet);
         } catch (Exception e) {
             // expected
         }
