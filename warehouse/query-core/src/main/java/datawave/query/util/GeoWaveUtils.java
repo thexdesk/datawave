@@ -503,7 +503,7 @@ public class GeoWaveUtils {
     }
     
     /**
-     * Creates a ByteArrayRange from the given tier, and min & max positions
+     * Creates a ByteArrayRange from the given tier, and min and max positions
      * 
      * @param tier
      * @param min
@@ -528,7 +528,7 @@ public class GeoWaveUtils {
     }
     
     /**
-     * Creates a ByteArrayRange from the given tier, and min & max positions
+     * Creates a ByteArrayRange from the given tier, and min and max positions
      * 
      * @param tier
      * @param min
