@@ -119,7 +119,7 @@
     <build>
         <plugins>
             <plugin>
-                <!-- 
+                <!--
                      To ease the burden of setting java classpath when testing JsonIngestFlattener. E.g.,
 
                      $ cd warehouse/ingest-json
